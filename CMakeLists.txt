@@ -93,12 +93,14 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC ${sources_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/w5500.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/wizchip_conf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/socket.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/lcd1602/lcd_i2c.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Src/w5500_conf.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/lcd1602
     ${include_DIRS}
     $<$<COMPILE_LANGUAGE:C>: ${include_c_DIRS}>
     $<$<COMPILE_LANGUAGE:CXX>: ${include_cxx_DIRS}>

@@ -22,6 +22,7 @@
 #include "wizchip_conf.h"
 #include "w5500.h"
 #include "socket.h"
+#include "lcd_i2c.h"
 
 /* ============================================================================
  * Network Configuration
@@ -175,6 +176,21 @@ int32_t TCP_EchoServer(uint8_t sn, uint16_t port)
                     close(sn);
                     return ret;
                 }
+                
+                /* Display received data on LCD */
+                LCD_Clear();
+                LCD_SetCursor(0, 0);
+                LCD_Print("Recv:");
+                LCD_PrintInt(size);
+                LCD_Print("B");
+                
+                LCD_SetCursor(0, 1);
+                /* Display first 16 chars of received data */
+                gDataBuf[ret] = '\0';  // Null-terminate
+                if(ret > 16) {
+                    gDataBuf[16] = '\0';  // Limit to 16 chars for LCD
+                }
+                LCD_Print((const char*)gDataBuf);
             }
             break;
             
@@ -214,6 +230,14 @@ int main(void)
 {
     /* Initialize system clock (if needed) */
     // SystemClock_Config();
+    
+    /* Initialize LCD */
+    LCD_Init();
+    LCD_Clear();
+    LCD_SetCursor(0, 0);
+    LCD_Print("TCP Echo Server");
+    LCD_SetCursor(0, 1);
+    LCD_Print("192.168.1.100");
     
     /* Initialize W5500 */
     W5500_Init();
