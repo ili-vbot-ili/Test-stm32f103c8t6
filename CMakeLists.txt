@@ -92,6 +92,7 @@ add_executable(${CMAKE_PROJECT_NAME})
 target_sources(${CMAKE_PROJECT_NAME} PUBLIC ${sources_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/w5500.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/wizchip_conf.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Src/w5500_conf.c
 )
 
 # Add include paths
