@@ -103,7 +103,12 @@ Sau khi build thành công, các file output sẽ được tạo trong `build/De
 - `Test-stm32f103c6t8.map` - Memory map
 
 ## History
-- Tạo project mới với stm32f103c6t8 thêm thư viện w5500, fix lỗi khai báo thư viện w5500
+- **2026-02-05**: Thêm TCP Echo Server với socket library
+  - Thêm `socket.c` và `socket.h` vào Library/W5500
+  - Thêm `w5500_conf.c` và `w5500_conf.h` - cấu hình GPIO/SPI cho STM32F103C8T6
+  - Cập nhật `main.cpp` với TCP Echo Server trên port 5000
+  - Cấu hình mạng: IP 192.168.1.100, Gateway 192.168.1.1
+- **2026-02-05**: Tạo project mới với STM32F103C8T6, thêm thư viện W5500, fix lỗi khai báo thư viện W5500
 
 ## License
 
