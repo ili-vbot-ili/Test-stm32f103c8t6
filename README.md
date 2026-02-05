@@ -10,6 +10,41 @@ Project STM32F103C8T6 với thư viện W5500 Ethernet.
 - **RAM**: 20KB
 - **Module Ethernet**: W5500
 
+## Kết nối phần cứng (SPI)
+
+| W5500 Pin | STM32F103C8T6 Pin | Chức năng |
+|-----------|-------------------|-----------|
+| VCC       | 3.3V              | Nguồn     |
+| GND       | GND               | Mass      |
+| MISO      | PA6 (SPI1_MISO)   | Master In Slave Out |
+| MOSI      | PA7 (SPI1_MOSI)   | Master Out Slave In |
+| SCK       | PA5 (SPI1_SCK)    | Serial Clock |
+| CS        | PA4 (SPI1_NSS)    | Chip Select |
+| RST       | PB0 (hoặc 3.3V)   | Reset (tùy chọn) |
+| INT       | PB1 (tùy chọn)    | Interrupt (tùy chọn) |
+
+### Sơ đồ kết nối
+
+```
+STM32F103C8T6                    W5500 Module
+    ┌─────────┐                  ┌─────────┐
+    │     3.3V├──────────────────┤VCC      │
+    │      GND├──────────────────┤GND      │
+    │      PA5├──────────────────┤SCK      │
+    │      PA6├──────────────────┤MISO     │
+    │      PA7├──────────────────┤MOSI     │
+    │      PA4├──────────────────┤CS       │
+    │      PB0├──────────────────┤RST      │
+    │      PB1├──────────────────┤INT      │
+    └─────────┘                  └─────────┘
+```
+
+### Lưu ý
+- W5500 hoạt động ở mức điện áp **3.3V** (tương thích với STM32)
+- Tốc độ SPI khuyến nghị: **<=33MHz** (W5500 hỗ trợ tối đa 80MHz)
+- Nếu không dùng interrupt, có thể bỏ qua chân INT
+- Chân RST có thể nối trực tiếp lên 3.3V nếu không cần hardware reset
+
 ## Cấu trúc thư mục
 
 ```
