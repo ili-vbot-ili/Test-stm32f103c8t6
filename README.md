@@ -67,6 +67,9 @@ Sau khi build thành công, các file output sẽ được tạo trong `build/De
 - `Test-stm32f103c6t8.bin` - File Binary
 - `Test-stm32f103c6t8.map` - Memory map
 
+## History
+- Tạo project mới với stm32f103c6t8 thêm thư viện w5500, fix lỗi khai báo thư viện w5500
+
 ## License
 
 Copyright (c) 2025 STMicroelectronics. All rights reserved.
