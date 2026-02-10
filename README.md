@@ -280,39 +280,8 @@ Sau khi build thành công, các file output sẽ được tạo trong `build/De
 - `Test-stm32f103c6t8.bin` - File Binary
 - `Test-stm32f103c6t8.map` - Memory map
 
-## History
-- **2026-02-06**: Thêm P10 LED Matrix driver (HUB12 Interface)
-  - Thêm `Library/P10/p10.c` và `Library/P10/p10.h`
-  - Kết nối sử dụng GPIOB (PB10-PB15) để tránh xung đột với W5500
-  - Hỗ trợ panel 32x16 pixels, quét 1/4
-  - Timer TIM3 cho tự động refresh
-  - Các hàm: P10_Init, P10_DrawString, P10_SetPixel, P10_ScrollText...
-  - Font 5x7 tích hợp sẵn (ASCII 32-127)
-  - Cập nhật `main.cpp` để hiển thị dữ liệu TCP lên cả LCD và P10
-- **2026-02-05**: Cấu hình IntelliSense và build project
-  - Cập nhật `.vscode/c_cpp_properties.json` với include paths
-  - Build thành công: FLASH 10008B (15.27%), RAM 4136B (20.20%)
-  - Output: `build/Debug/Test-stm32f103c6t8.elf`, `.hex`, `.bin`
-- **2026-02-05**: Di chuyển LCD driver vào Library/lcd1602
-  - Di chuyển `lcd_i2c.c` và `lcd_i2c.h` từ Inc/Src vào `Library/lcd1602/`
-  - Cập nhật CMakeLists.txt với đường dẫn mới
-- **2026-02-05**: Hiển thị dữ liệu nhận được từ W5500 lên LCD
-  - Cập nhật `main.cpp` - thêm include `lcd_i2c.h`
-  - Khởi tạo LCD khi khởi động, hiển thị IP address
-  - Sau khi nhận và echo dữ liệu, hiển thị lên LCD (dòng 1: số bytes, dòng 2: nội dung)
-- **2026-02-05**: Thêm LCD 1602 I2C driver
-  - Thêm `lcd_i2c.c` và `lcd_i2c.h` - driver LCD 16x2 qua I2C (PCF8574)
-  - Kết nối I2C1: PB6 (SCL), PB7 (SDA)
-  - Địa chỉ I2C mặc định: 0x27
-  - Các hàm: LCD_Init, LCD_Print, LCD_SetCursor, LCD_Backlight, LCD_CreateChar...
-  - Cập nhật README với sơ đồ kết nối và hướng dẫn sử dụng
-- **2026-02-05**: Thêm TCP Echo Server với socket library
-  - Thêm `socket.c` và `socket.h` vào Library/W5500
-  - Thêm `w5500_conf.c` và `w5500_conf.h` - cấu hình GPIO/SPI cho STM32F103C8T6
-  - Cập nhật `main.cpp` với TCP Echo Server trên port 5000
-  - Cấu hình mạng: IP 192.168.1.100, Gateway 192.168.1.1
-- **2026-02-05**: Tạo project mới với STM32F103C8T6, thêm thư viện W5500, fix lỗi khai báo thư viện W5500
+## Flash Firmware
 
-## License
+### Phương pháp 1: ST-Link (SWD) - Khuyến nghị
 
-Copyright (c) 2025 STMicroelectronics. All rights reserved.
+**Kết nối ST-Link với STM32:**
