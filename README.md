@@ -285,3 +285,92 @@ Sau khi build thành công, các file output sẽ được tạo trong `build/De
 ### Phương pháp 1: ST-Link (SWD) - Khuyến nghị
 
 **Kết nối ST-Link với STM32:**
+
+| ST-Link | STM32F103C8T6 |
+|---------|---------------|
+| SWDIO   | PA13 (SWDIO)  |
+| SWCLK   | PA14 (SWCLK)  |
+| GND     | GND           |
+| 3.3V    | 3.3V          |
+
+**Sơ đồ kết nối ST-Link:**
+
+```
+STM32F103C8T6                    ST-Link V2
+    ┌─────────┐                  ┌─────────┐
+    │     3.3V├──────────────────┤3.3V     │
+    │      GND├──────────────────┤GND      │
+    │     PA13├──────────────────┤SWDIO    │
+    │     PA14├──────────────────┤SWCLK    │
+    └─────────┘                  └─────────┘
+```
+
+**Nạp firmware:**
+
+```powershell
+# Sử dụng script có sẵn
+.\flash.ps1
+
+# Hoặc sử dụng trực tiếp STM32CubeProgrammer CLI
+& "C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe" -c port=SWD -w build\Debug\Test-stm32f103c6t8.hex -v -rst
+```
+
+### Phương pháp 2: Serial (UART via USB-TTL)
+
+**Kết nối USB-TTL với STM32:**
+
+| USB-TTL | STM32F103C8T6 |
+|---------|---------------|
+| TX      | PA10 (RX)     |
+| RX      | PA9 (TX)      |
+| GND     | GND           |
+| 3.3V    | 3.3V          |
+
+**Cấu hình Boot pins:**
+- **BOOT0 = 1** (nối lên 3.3V)
+- **BOOT1 = 0** (nối xuống GND)
+- Nhấn nút **RESET**
+
+**Nạp firmware:**
+
+```powershell
+# Thay COM3 bằng cổng COM của bạn
+& "C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe" -c port=COM3 -w build\Debug\Test-stm32f103c6t8.hex -v -rst
+```
+
+**Sau khi nạp xong:**
+- **BOOT0 = 0** (nối xuống GND)
+- Nhấn nút **RESET** để chạy chương trình
+
+### Phương pháp 3: Sử dụng VS Code
+
+1. Cài đặt extension **STM32 for VS Code**
+2. Kết nối ST-Link
+3. Nhấn `F5` hoặc chọn **Run > Start Debugging**
+
+## History
+
+- **2026-02-10**: Thêm Flash Script và hướng dẫn nạp firmware
+  - Thêm `flash.ps1` - Script PowerShell để nạp firmware
+  - Hỗ trợ ST-Link (SWD) và Serial (UART)
+  - Cập nhật README với hướng dẫn chi tiết kết nối và nạp firmware
+- **2026-02-06**: Thêm P10 LED Matrix driver (HUB12 Interface)
+  - Thêm `Library/P10/p10.c` và `Library/P10/p10.h`
+  - Kết nối sử dụng GPIOB (PB10-PB15) để tránh xung đột với W5500
+  - Hỗ trợ panel 32x16 pixels, quét 1/4
+  - Timer TIM3 cho tự động refresh
+  - Các hàm: P10_Init, P10_DrawString, P10_SetPixel, P10_ScrollText...
+  - Font 5x7 tích hợp sẵn (ASCII 32-127)
+  - Cập nhật `main.cpp` để hiển thị dữ liệu TCP lên cả LCD và P10
+- **2026-02-05**: Cấu hình IntelliSense và build project
+  - Cập nhật `.vscode/c_cpp_properties.json` với include paths
+  - Build thành công: FLASH 10008B (15.27%), RAM 4136B (20.20%)
+- **2026-02-05**: Di chuyển LCD driver vào Library/lcd1602
+- **2026-02-05**: Hiển thị dữ liệu nhận được từ W5500 lên LCD
+- **2026-02-05**: Thêm LCD 1602 I2C driver
+- **2026-02-05**: Thêm TCP Echo Server với socket library
+- **2026-02-05**: Tạo project mới với STM32F103C8T6, thêm thư viện W5500
+
+## License
+
+Copyright (c) 2025 STMicroelectronics. All rights reserved.
