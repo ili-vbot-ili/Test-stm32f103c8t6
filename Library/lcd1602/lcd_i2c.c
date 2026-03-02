@@ -15,6 +15,9 @@
 static uint8_t _displayControl = LCD_DISPLAY_ON | LCD_CURSOR_OFF | LCD_BLINK_OFF;
 static uint8_t _displayMode = LCD_ENTRY_LEFT | LCD_ENTRY_SHIFT_DEC;
 static uint8_t _backlightVal = LCD_BACKLIGHT;
+static uint8_t _lcd_connected = 0;  // Auto-detect flag
+
+#define I2C_TIMEOUT  5000
 
 /* ============================================================================
  * Private Functions - Delay
@@ -76,13 +79,15 @@ static void LCD_I2C_Init(void)
 /**
  * @brief  Send START condition
  */
-static void LCD_I2C_Start(void)
+static uint8_t LCD_I2C_Start(void)
 {
     I2C1->CR1 |= I2C_CR1_ACK;
     I2C1->CR1 |= I2C_CR1_START;
     
-    /* Wait for start bit */
-    while(!(I2C1->SR1 & I2C_SR1_SB));
+    /* Wait for start bit with timeout */
+    volatile uint32_t t = I2C_TIMEOUT;
+    while(!(I2C1->SR1 & I2C_SR1_SB) && --t);
+    return (t > 0) ? 1 : 0;
 }
 
 /**
@@ -96,16 +101,25 @@ static void LCD_I2C_Stop(void)
 /**
  * @brief  Send address
  */
-static void LCD_I2C_SendAddr(uint8_t addr)
+static uint8_t LCD_I2C_SendAddr(uint8_t addr)
 {
     I2C1->DR = addr << 1;  // Write mode (LSB = 0)
     
-    /* Wait for address sent */
-    while(!(I2C1->SR1 & I2C_SR1_ADDR));
+    /* Wait for address sent with timeout */
+    volatile uint32_t t = I2C_TIMEOUT;
+    while(!(I2C1->SR1 & (I2C_SR1_ADDR | (1 << 10)/*AF*/)) && --t);
+    
+    if((t == 0) || (I2C1->SR1 & (1 << 10)/*AF*/)) {
+        /* NACK or timeout - device not present */
+        I2C1->SR1 &= ~(1 << 10);  // Clear AF flag
+        I2C1->CR1 |= I2C_CR1_STOP;
+        return 0;
+    }
     
     /* Clear ADDR flag by reading SR1 and SR2 */
     (void)I2C1->SR1;
     (void)I2C1->SR2;
+    return 1;
 }
 
 /**
@@ -113,13 +127,16 @@ static void LCD_I2C_SendAddr(uint8_t addr)
  */
 static void LCD_I2C_SendData(uint8_t data)
 {
-    /* Wait for TXE */
-    while(!(I2C1->SR1 & I2C_SR1_TXE));
+    /* Wait for TXE with timeout */
+    volatile uint32_t t = I2C_TIMEOUT;
+    while(!(I2C1->SR1 & I2C_SR1_TXE) && --t);
+    if(t == 0) return;
     
     I2C1->DR = data;
     
-    /* Wait for BTF */
-    while(!(I2C1->SR1 & I2C_SR1_BTF));
+    /* Wait for BTF with timeout */
+    t = I2C_TIMEOUT;
+    while(!(I2C1->SR1 & I2C_SR1_BTF) && --t);
 }
 
 /**
@@ -127,8 +144,9 @@ static void LCD_I2C_SendData(uint8_t data)
  */
 static void LCD_I2C_Write(uint8_t data)
 {
-    LCD_I2C_Start();
-    LCD_I2C_SendAddr(LCD_I2C_ADDR);
+    if(!_lcd_connected) return;
+    if(!LCD_I2C_Start()) { _lcd_connected = 0; return; }
+    if(!LCD_I2C_SendAddr(LCD_I2C_ADDR)) { _lcd_connected = 0; return; }
     LCD_I2C_SendData(data);
     LCD_I2C_Stop();
 }
@@ -191,6 +209,13 @@ void LCD_Init(void)
     /* Wait for LCD power up */
     LCD_DelayMs(50);
     
+    /* Probe I2C device to check if LCD is connected */
+    _lcd_connected = 1;  // Temporarily enable for probe
+    if(!LCD_I2C_Start()) { _lcd_connected = 0; return; }
+    if(!LCD_I2C_SendAddr(LCD_I2C_ADDR)) { _lcd_connected = 0; return; }
+    LCD_I2C_Stop();
+    /* LCD detected! */
+    
     /* Initialize in 4-bit mode */
     LCD_Write4Bits(0x30);
     LCD_DelayMs(5);
@@ -222,18 +247,21 @@ void LCD_Init(void)
 
 void LCD_Clear(void)
 {
+    if(!_lcd_connected) return;
     LCD_Command(LCD_CMD_CLEAR);
     LCD_DelayMs(2);
 }
 
 void LCD_Home(void)
 {
+    if(!_lcd_connected) return;
     LCD_Command(LCD_CMD_HOME);
     LCD_DelayMs(2);
 }
 
 void LCD_SetCursor(uint8_t col, uint8_t row)
 {
+    if(!_lcd_connected) return;
     uint8_t row_offsets[] = {0x00, 0x40, 0x14, 0x54};
     
     if(row >= LCD_ROWS) {
@@ -245,6 +273,7 @@ void LCD_SetCursor(uint8_t col, uint8_t row)
 
 void LCD_Print(const char* str)
 {
+    if(!_lcd_connected) return;
     while(*str) {
         LCD_Data(*str++);
     }
@@ -252,11 +281,13 @@ void LCD_Print(const char* str)
 
 void LCD_PrintChar(char c)
 {
+    if(!_lcd_connected) return;
     LCD_Data(c);
 }
 
 void LCD_PrintInt(int32_t num)
 {
+    if(!_lcd_connected) return;
     char buffer[12];
     int i = 0;
     int isNegative = 0;
@@ -337,10 +368,17 @@ void LCD_CreateChar(uint8_t location, uint8_t charmap[])
 
 void LCD_ScrollLeft(void)
 {
+    if(!_lcd_connected) return;
     LCD_Command(LCD_CMD_CURSOR_SHIFT | 0x08);
 }
 
 void LCD_ScrollRight(void)
 {
+    if(!_lcd_connected) return;
     LCD_Command(LCD_CMD_CURSOR_SHIFT | 0x0C);
+}
+
+uint8_t LCD_IsConnected(void)
+{
+    return _lcd_connected;
 }

@@ -7,6 +7,7 @@
                 "${workspaceFolder}/Inc",
                 "${workspaceFolder}/Library/W5500",
                 "${workspaceFolder}/Library/lcd1602",
+                "${workspaceFolder}/Library/P10",
                 "C:/Users/Vbot/AppData/Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/arm-none-eabi/include"
             ],
             "defines": [

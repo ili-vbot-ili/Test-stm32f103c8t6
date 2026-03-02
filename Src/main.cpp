@@ -25,6 +25,12 @@
 #include "lcd_i2c.h"
 #include "p10.h"
 
+/* Required by startup_stm32f103xx.S */
+extern "C" void SystemInit(void)
+{
+    /* Empty - clock config done later in main */
+}
+
 /* ============================================================================
  * Network Configuration
  * ============================================================================ */
@@ -242,37 +248,157 @@ int32_t TCP_EchoServer(uint8_t sn, uint16_t port)
 }
 
 /* ============================================================================
+ * System Clock Configuration
+ * ============================================================================ */
+
+/**
+ * @brief  Configure system clock to 72MHz using HSE (8MHz) + PLL (x9)
+ */
+/**
+ * @brief  Simple delay
+ */
+static void delay_ms(uint32_t ms)
+{
+    /* Approximate: works at both 8MHz and 72MHz */
+    for(volatile uint32_t i = 0; i < ms * 7200; i++);
+}
+
+/**
+ * @brief  Initialize PC13 LED (Blue Pill onboard LED)
+ */
+static void LED_Init(void)
+{
+    RCC->APB2ENR |= (1 << 4);           // GPIOC clock enable
+    /* PC13 as Output Push-Pull, 2MHz */
+    GPIOC->CRH &= ~(0x0F << 20);        // Clear PC13 config
+    GPIOC->CRH |= (0x02 << 20);         // Output 2MHz, Push-Pull
+}
+
+static void LED_On(void)  { GPIOC->BRR  = (1 << 13); }  // Active low
+static void LED_Off(void) { GPIOC->BSRR = (1 << 13); }
+
+static void LED_Blink(uint8_t times, uint32_t ms)
+{
+    for(uint8_t i = 0; i < times; i++) {
+        LED_On(); delay_ms(ms);
+        LED_Off(); delay_ms(ms);
+    }
+}
+
+void SystemClock_Config(void)
+{
+    /* Enable HSE (High-Speed External oscillator) */
+    RCC->CR |= (1 << 16);               // HSEON
+    
+    /* Wait HSERDY with timeout */
+    volatile uint32_t timeout = 100000;
+    while(!(RCC->CR & (1 << 17)) && --timeout);
+    
+    if(timeout == 0) {
+        /* HSE failed - stay on HSI 8MHz */
+        return;
+    }
+    
+    /* Enable Prefetch Buffer & set Flash latency to 2 wait states (for 72MHz) */
+    FLASH->ACR |= (1 << 4);             // PRFTBE: Prefetch buffer enable
+    FLASH->ACR &= ~(0x07);              // Clear latency bits
+    FLASH->ACR |= (0x02);               // 2 wait states (48MHz < SYSCLK <= 72MHz)
+    
+    /* Configure PLL:
+     * - PLL source = HSE (8MHz)
+     * - PLL multiplier = x9
+     * - SYSCLK = 8MHz * 9 = 72MHz
+     */
+    RCC->CFGR &= ~((1 << 16) | (0xF << 18));  // Clear PLLSRC and PLLMUL
+    RCC->CFGR |= (1 << 16);             // PLLSRC = HSE
+    RCC->CFGR |= (0x7 << 18);           // PLLMUL = x9 (0111)
+    
+    /* Configure bus clocks:
+     * - AHB  = SYSCLK / 1 = 72MHz
+     * - APB1 = SYSCLK / 2 = 36MHz (max 36MHz)
+     * - APB2 = SYSCLK / 1 = 72MHz
+     */
+    RCC->CFGR &= ~((0xF << 4) | (0x7 << 8) | (0x7 << 11));  // Clear HPRE, PPRE1, PPRE2
+    RCC->CFGR |= (0x4 << 8);            // PPRE1 = /2 (100)
+    
+    /* Enable PLL */
+    RCC->CR |= (1 << 24);               // PLLON
+    while(!(RCC->CR & (1 << 25)));       // Wait PLLRDY
+    
+    /* Select PLL as system clock source */
+    RCC->CFGR &= ~(0x3 << 0);           // Clear SW
+    RCC->CFGR |= (0x2 << 0);            // SW = PLL
+    while(((RCC->CFGR >> 2) & 0x3) != 0x2);  // Wait SWS = PLL
+}
+
+/* ============================================================================
  * Main Function
  * ============================================================================ */
 
 int main(void)
 {
-    /* Initialize system clock (if needed) */
-    // SystemClock_Config();
+    /* Initialize LED for debug */
+    LED_Init();
+    LED_Blink(2, 100);  // 2 blinks = MCU started
     
-    /* Initialize LCD */
-    LCD_Init();
-    LCD_Clear();
-    LCD_SetCursor(0, 0);
-    LCD_Print("TCP Echo Server");
-    LCD_SetCursor(0, 1);
-    LCD_Print("192.168.1.100");
-    
-    /* Initialize P10 LED Matrix */
-    P10_Init();
-    P10_SetupTimer();  // Setup timer for automatic refresh
-    
-    /* Display text on P10 */
-    P10_Clear();
-    P10_DrawString(0, 0, "HELLO");
-    P10_DrawString(0, 8, "WORLD");
+    /* Initialize system clock to 72MHz */
+    SystemClock_Config();
+    LED_Blink(3, 100);  // 3 blinks = Clock configured
     
     /* Initialize W5500 */
     W5500_Init();
+    LED_Blink(4, 100);  // 4 blinks = W5500 initialized
     
-    /* Main loop - Run TCP Echo Server */
+    /* Verify W5500 - read chip version (should be 0x04) */
+    uint8_t ver = getVERSIONR();
+    if(ver == 0x04) {
+        LED_Blink(5, 100);  // 5 blinks = W5500 SPI OK
+    } else {
+        // Fast blink = SPI error
+        for(int i = 0; i < 20; i++) {
+            LED_On(); delay_ms(50);
+            LED_Off(); delay_ms(50);
+        }
+    }
+    
+    /* Open TCP socket and start listening BEFORE entering loop */
+    socket(SOCKET_TCP, Sn_MR_TCP, TCP_PORT, 0x00);
+    listen(SOCKET_TCP);
+    LED_Blink(6, 100);  // 6 blinks = TCP listening
+    
+    /* Initialize LCD (auto-skip if not connected) */
+    LCD_Init();
+    if(LCD_IsConnected()) {
+        LCD_Clear();
+        LCD_SetCursor(0, 0);
+        if(ver == 0x04) {
+            LCD_Print("W5500 OK v");
+            LCD_PrintInt(ver);
+        } else {
+            LCD_Print("W5500 ERR:");
+            LCD_PrintInt(ver);
+        }
+        LCD_SetCursor(0, 1);
+        LCD_Print("192.168.1.100");
+    }
+    
+    /* Initialize P10 LED Matrix (output-only, always init) */
+    P10_Init();
+    P10_SetupTimer();
+    P10_Clear();
+    P10_DrawString(0, 0, "TCP:5000");
+    P10_DrawString(0, 8, "192.168.1.100");
+    
+    /* Main loop - Run TCP Echo Server + heartbeat LED */
     while(1)
     {
         TCP_EchoServer(SOCKET_TCP, TCP_PORT);
+        
+        /* Heartbeat - toggle LED every ~1s */
+        static uint32_t cnt = 0;
+        if(++cnt > 100000) {
+            cnt = 0;
+            GPIOC->ODR ^= (1 << 13);
+        }
     }
 }

@@ -220,6 +220,12 @@ void LCD_ScrollLeft(void);
  */
 void LCD_ScrollRight(void);
 
+/**
+ * @brief  Check if LCD is connected
+ * @retval 1 = connected, 0 = not connected
+ */
+uint8_t LCD_IsConnected(void);
+
 #ifdef __cplusplus
 }
 #endif

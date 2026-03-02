@@ -97,6 +97,9 @@ extern "C" {
 /* RCC Base Address */
 #define RCC_BASE                    (AHBPERIPH_BASE + 0x1000)
 
+/* FLASH Base Address */
+#define FLASH_R_BASE                (AHBPERIPH_BASE + 0x2000)
+
 /* ============================================================================
  * GPIO Register Structure
  * ============================================================================ */
@@ -154,6 +157,24 @@ typedef struct {
 #define SPI1                        ((SPI_TypeDef *)SPI1_BASE)
 #define SPI2                        ((SPI_TypeDef *)SPI2_BASE)
 #define RCC                         ((RCC_TypeDef *)RCC_BASE)
+
+/* ============================================================================
+ * FLASH Register Structure
+ * ============================================================================ */
+
+typedef struct {
+    volatile uint32_t ACR;          // Access Control Register
+    volatile uint32_t KEYR;         // Key Register
+    volatile uint32_t OPTKEYR;      // Option Key Register
+    volatile uint32_t SR;           // Status Register
+    volatile uint32_t CR;           // Control Register
+    volatile uint32_t AR;           // Address Register
+    volatile uint32_t RESERVED;
+    volatile uint32_t OBR;          // Option Byte Register
+    volatile uint32_t WRPR;         // Write Protection Register
+} FLASH_TypeDef;
+
+#define FLASH                       ((FLASH_TypeDef *)FLASH_R_BASE)
 
 /* ============================================================================
  * RCC Clock Enable Bits

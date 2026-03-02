@@ -350,6 +350,18 @@ STM32F103C8T6                    ST-Link V2
 
 ## History
 
+- **2026-03-02**: Debug, sửa lỗi và hoàn thiện firmware TCP Echo Server
+  - **Sửa lỗi SystemInit()**: Startup code gọi `bl SystemInit` nhưng không có implementation → MCU crash. Thêm `extern "C" void SystemInit(void) {}` trong `main.cpp`
+  - **Thêm SystemClock_Config()**: Cấu hình HSE 8MHz + PLL x9 = 72MHz bằng raw register (không dùng CMSIS macros). Có fallback về HSI 8MHz nếu HSE timeout
+  - **Thêm FLASH_TypeDef** trong `w5500_conf.h`: Định nghĩa FLASH register base address và struct để truy cập Flash ACR (cần cho cấu hình wait states ở 72MHz)
+  - **Thêm LED debug (PC13)**: Blink pattern để chẩn đoán: 2=MCU started, 3=Clock OK, 4=W5500 init, 5=SPI OK, 6=TCP listening, heartbeat trong main loop
+  - **Phát hiện lỗi BOOT0**: BOOT0=1 khiến MCU boot vào system memory bootloader thay vì Flash → firmware không chạy. Fix: BOOT0=0 (GND)
+  - **LCD I2C auto-detect với timeout**: Thêm I2C timeout (5000 cycles), `_lcd_connected` flag, auto-probe address trong `LCD_Init()`. Nếu LCD không kết nối → tự động skip, không block MCU
+  - **Thêm `LCD_IsConnected()`**: Hàm kiểm tra LCD có kết nối hay không
+  - **Tối ưu thứ tự khởi tạo**: Mở TCP socket + listen **trước** LCD/P10 init, tránh bị block bởi I2C timeout khi LCD chưa kết nối
+  - **Verify W5500 SPI**: Đọc chip version register (phải = 0x04) để xác nhận SPI hoạt động
+  - **Nâng cấp ST-Link firmware**: V2J46S7 qua STM32CubeIDE GUI
+  - **Kết quả**: Ping OK, TCP Echo Server hoạt động trên 192.168.1.100:5000
 - **2026-02-10**: Thêm Flash Script và hướng dẫn nạp firmware
   - Thêm `flash.ps1` - Script PowerShell để nạp firmware
   - Hỗ trợ ST-Link (SWD) và Serial (UART)
