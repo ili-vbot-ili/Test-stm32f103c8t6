@@ -10,6 +10,9 @@ Project STM32F103C8T6 với thư viện W5500 Ethernet.
 - **RAM**: 20KB
 - **Module Ethernet**: W5500
 - **LCD**: LCD 1602 với I2C adapter (PCF8574)
+- **Flash Memory**: W25Q128 SPI Flash (16MB)
+- **RFID Reader**: Wiegand 26/34/37-bit × 2 cổng (multi-port RFID)
+- **Relay**: 4 kênh relay điều khiển (cửa/thiết bị)
 
 ## Kết nối phần cứng
 
@@ -100,99 +103,448 @@ STM32F103C8T6                    LCD 1602 I2C
 │   └── lcd1602/            # Thư viện LCD 1602 I2C
 │       ├── lcd_i2c.c
 │       └── lcd_i2c.h
-│   └── P10/                # Thư viện P10 LED Matrix (HUB12)
+│   └── P10/                # Thư viện P10 LED Matrix (tạm tắt)
 │       ├── p10.c
 │       └── p10.h
+│   └── W25Q/               # Thư viện W25Q128 SPI Flash
+│       ├── w25q128.c
+│       └── w25q128.h
+│   └── Wiegand/             # Thư viện Wiegand RFID Reader (2-port, JTAG preserved)
+│       ├── wiegand.c
+│       └── wiegand.h
+│   └── Relay/               # Thư viện điều khiển Relay (4 kênh)
+│       ├── relay.c
+│       └── relay.h
 └── cmake/
     ├── gnu-tools-for-stm32.cmake
     └── vscode_generated.cmake
 ```
 
-### 3. P10 LED Matrix Module (HUB12 Interface)
+### 3. W25Q128 SPI Flash Module (Software SPI - GPIOB)
 
-| P10 Pin | STM32F103C8T6 Pin | Chức năng |
-|---------|-------------------|-----------|
-| VCC     | 5V                | Nguồn     |
-| GND     | GND               | Mass      |
-| OE      | PB10              | Output Enable (Active LOW) |
-| A       | PB11              | Row Select A |
-| B       | PB12              | Row Select B |
-| CLK     | PB13              | Clock |
-| LAT/STB | PB14              | Latch |
-| DATA/R  | PB15              | Data |
+> ⚠️ **P10 LED Matrix tạm tắt** — chân PB12-PB15 được chuyển cho W25Q128 Flash. File P10 vẫn giữ trong `Library/P10/` để bật lại khi cần.
 
-#### Sơ đồ kết nối P10
+| W25Q128 Pin | STM32F103C8T6 Pin | Chức năng |
+|-------------|-------------------|-----------|
+| VCC         | 3.3V              | Nguồn     |
+| GND         | GND               | Mass      |
+| CS          | PB12              | Chip Select |
+| CLK         | PB13              | Clock |
+| DO (MISO)   | PB14              | Data Out (Flash → MCU) |
+| DI (MOSI)   | PB15              | Data In (MCU → Flash) |
+
+#### Sơ đồ kết nối W25Q128
 
 ```
-STM32F103C8T6                    P10 LED Matrix (HUB12)
+STM32F103C8T6                    W25Q128 SPI Flash
     ┌─────────┐                  ┌─────────┐
-    │       5V├──────────────────┤VCC      │
+    │     3.3V├──────────────────┤VCC      │
     │      GND├──────────────────┤GND      │
-    │     PB10├──────────────────┤OE       │
-    │     PB11├──────────────────┤A        │
-    │     PB12├──────────────────┤B        │
+    │     PB12├──────────────────┤CS       │
     │     PB13├──────────────────┤CLK      │
-    │     PB14├──────────────────┤LAT/STB  │
-    │     PB15├──────────────────┤DATA/R   │
+    │     PB14├──────────────────┤DO(MISO) │
+    │     PB15├──────────────────┤DI(MOSI) │
+    │         │           3.3V──┤WP       │
+    │         │           3.3V──┤HOLD     │
     └─────────┘                  └─────────┘
 ```
 
-#### Lưu ý P10
-- Sử dụng **GPIOB** (PB10-PB15) để tránh xung đột với W5500 trên GPIOA
-- Panel kích thước: **32x16 pixels**, quét 1/4 (1/4 scan)
-- Cần gọi `P10_Refresh()` định kỳ (mỗi 1-2ms) hoặc dùng `P10_SetupTimer()` để tự động refresh
-- Timer sử dụng: **TIM3** với interrupt 1ms
+#### Lưu ý W25Q128
+- Điện áp: **3.3V** (tương thích trực tiếp với STM32)
+- Chân **WP** và **HOLD** nối lên 3.3V nếu không dùng
+- Dung lượng: **16MB** (128Mbit), đủ lưu ~262,000 log entries
+- Sử dụng **Software SPI** (bit-bang) trên GPIOB, không xung đột với W5500 (SPI1 hardware)
+- Ghi/xóa: **100,000 lần** mỗi sector
 
-## Sử dụng P10 LED Matrix
+### 5. Wiegand RFID Reader — 2 Cổng (GPIOA)
+
+> ℹ️ **JTAG được giữ nguyên** — Chỉ sử dụng 2 cổng Wiegand (không dùng PA2/PA15), giữ nguyên cổng JTAG đầy đủ.
+
+| Reader | D0 Pin | D1 Pin | Ghi chú |
+|--------|--------|--------|---------|
+| Port 0 (chính) | PA3 | PA8 | Cổng chính |
+| Port 1 (phụ)   | PA0 | PA1 | Cổng phụ |
+
+Mỗi reader cần thêm: VCC (12V/5V), GND (chung với STM32).
+
+#### Sơ đồ kết nối 2 Wiegand Readers
+
+```
+STM32F103C8T6                    Wiegand RFID Readers
+    ┌─────────┐
+    │      GND├────────┬──────── GND (chung)
+    │      PA3├────────┤         Reader 0 D0
+    │      PA8├────────┤         Reader 0 D1
+    │      PA0├────────┼──────── Reader 1 D0
+    │      PA1├────────┼──────── Reader 1 D1
+    └─────────┘
+```
+
+#### Lưu ý Wiegand Multi-Port
+- **JTAG được giữ nguyên**: PA15/PB3/PB4 không bị sử dụng, hỗ trợ debug JTAG đầy đủ
+- Mỗi reader cần **GND chung** với STM32
+- **Nguồn reader**: thường **12V DC** (một số model dùng 5V)
+- D0/D1 idle ở mức **HIGH**, xung **LOW ~50µs** mỗi bit
+- Hỗ trợ: **Wiegand 26-bit** (phổ biến nhất), **34-bit**, **37-bit**
+- PA0, PA1, PA3, PA8 đều là **5V tolerant**
+- `WG_Process()` trả về bitmask: bit0=Port0, bit1=Port1
+
+### 6. Relay Module — 4 Kênh (GPIOA)
+
+| Relay | STM32 Pin | Chức năng |
+|-------|-----------|-----------|
+| Relay 0 | PA9  | Cửa 1 / Thiết bị 1 |
+| Relay 1 | PA10 | Cửa 2 / Thiết bị 2 |
+| Relay 2 | PA11 | Cửa 3 / Thiết bị 3 |
+| Relay 3 | PA12 | Cửa 4 / Thiết bị 4 |
+
+#### Sơ đồ kết nối 4 Relay
+
+```
+STM32F103C8T6                    4-Channel Relay Module
+    ┌─────────┐                  ┌───────────────────┐
+    │       5V├──────────────────┤VCC                │
+    │      GND├──────────────────┤GND                │
+    │      PA9├──────────────────┤IN1 (Relay 0)      │
+    │     PA10├──────────────────┤IN2 (Relay 1)      │
+    │     PA11├──────────────────┤IN3 (Relay 2)      │
+    │     PA12├──────────────────┤IN4 (Relay 3)      │
+    └─────────┘                  └───────────────────┘
+```
+
+#### Lưu ý Relay
+- **Active LOW** (mặc định): hầu hết relay module có optocoupler, IN=LOW → relay ON
+  - Nếu module active-high, đổi `RELAY_ACTIVE_HIGH` thành `1` trong `relay.h`
+- **Nguồn relay module**: dùng **5V** (VCC riêng hoặc qua USB STM32)
+- Tín hiệu 3.3V từ STM32 đủ điều khiển hầu hết relay module optocoupler
+- Hỗ trợ **auto-off** (pulse): relay tự tắt sau thời gian đặt trước
+- Khi quẹt thẻ hợp lệ, relay tương ứng port sẽ tự bật ~3 giây rồi tắt
+- PA9-PA12 đều là **5V tolerant**, output Push-Pull 2MHz
+
+### Tổng hợp GPIO đã sử dụng
+
+```
+GPIOA:
+  PA0  - Wiegand Port 1 D0 (RFID Reader 1)
+  PA1  - Wiegand Port 1 D1 (RFID Reader 1)
+  PA2  - (trống)
+  PA3  - Wiegand Port 0 D0 (RFID Reader 0 — chính)
+  PA4  - W5500 CS (SPI1_NSS)
+  PA5  - W5500 SCK (SPI1_SCK)
+  PA6  - W5500 MISO (SPI1_MISO)
+  PA7  - W5500 MOSI (SPI1_MOSI)
+  PA8  - Wiegand Port 0 D1 (RFID Reader 0 — chính)
+  PA9  - Relay 0 (Cửa 1)
+  PA10 - Relay 1 (Cửa 2)
+  PA11 - Relay 2 (Cửa 3)
+  PA12 - Relay 3 (Cửa 4)
+  PA13 - SWDIO (Debug — JTAG)
+  PA14 - SWCLK (Debug — JTAG)
+  PA15 - JTDI  (Debug — JTAG, giữ nguyên)
+  
+GPIOB:
+  PB0  - W5500 RST
+  PB1  - W5500 INT (tùy chọn)
+  PB3  - JTDO  (Debug — JTAG, giữ nguyên)
+  PB4  - NJTRST (Debug — JTAG, giữ nguyên)
+  PB6  - LCD I2C SCL (I2C1)
+  PB7  - LCD I2C SDA (I2C1)
+  PB8  - (trống — DS1302 đã bỏ)
+  PB9  - (trống — DS1302 đã bỏ)
+  PB10 - (trống — DS1302 đã bỏ)
+  PB12 - W25Q128 CS
+  PB13 - W25Q128 CLK
+  PB14 - W25Q128 MISO
+  PB15 - W25Q128 MOSI
+
+GPIOC:
+  PC13 - LED onboard (heartbeat)
+
+Chân còn trống: PA2, PB2, PB5, PB8, PB9, PB10, PB11 (7 chân)
+Chân JTAG giữ nguyên: PA13, PA14, PA15, PB3, PB4
+```
+
+## Sử dụng W25Q128 SPI Flash
 
 ### Ví dụ cơ bản
 
 ```cpp
-#include "p10.h"
+#include "w25q128.h"
 
 int main(void)
 {
-    // Khởi tạo P10
-    P10_Init();
-    P10_SetupTimer();  // Tự động refresh bằng Timer
+    // Khởi tạo W25Q128
+    if(W25Q_Init()) {
+        W25Q_LogInit();
+        
+        // Ghi log
+        W25Q_LogWrite(W25Q_LOG_SYSTEM, (uint8_t*)"Hello", 5);
+        
+        // Đọc log
+        W25Q_LogEntry_t entry;
+        W25Q_LogRead(0, &entry);
+        
+        // Đọc/ghi trực tiếp
+        uint8_t buf[256];
+        W25Q_EraseSector(0x100000);          // Xóa sector tại 1MB
+        W25Q_Write(0x100000, buf, 256);      // Ghi 256 bytes
+        W25Q_Read(0x100000, buf, 256);       // Đọc lại
+    }
     
-    // Xóa màn hình và hiển thị text
-    P10_Clear();
-    P10_DrawString(0, 0, "HELLO");
-    P10_DrawString(0, 8, "WORLD");
+    while(1) { }
+}
+```
+
+### Các hàm W25Q128
+
+| Hàm | Mô tả |
+|-----|-------|
+| `W25Q_Init()` | Khởi tạo, verify JEDEC ID. Return 1=OK |
+| `W25Q_IsConnected()` | Kiểm tra chip có kết nối không |
+| `W25Q_ReadJEDEC()` | Đọc JEDEC ID (0xEF4018 = W25Q128) |
+| `W25Q_Read(addr, buf, len)` | Đọc data từ flash |
+| `W25Q_Write(addr, buf, len)` | Ghi data (auto page-program) |
+| `W25Q_WritePage(addr, buf, len)` | Ghi 1 page (max 256 bytes) |
+| `W25Q_EraseSector(addr)` | Xóa sector 4KB |
+| `W25Q_EraseBlock(addr)` | Xóa block 64KB |
+| `W25Q_EraseChip()` | Xóa toàn bộ chip (20-100s) |
+| `W25Q_IsBusy()` | Kiểm tra chip đang bận |
+| `W25Q_PowerDown()` | Chế độ tiết kiệm điện |
+| `W25Q_WakeUp()` | Đánh thức từ power-down |
+
+### Các hàm Data Logger
+
+| Hàm | Mô tả |
+|-----|-------|
+| `W25Q_LogInit()` | Khởi tạo hệ thống log |
+| `W25Q_LogWrite(type, data, len)` | Ghi log entry (max 56 bytes data) |
+| `W25Q_LogRead(index, &entry)` | Đọc log theo index |
+| `W25Q_LogCount()` | Tổng số log entries |
+| `W25Q_GetBootCount()` | Số lần boot |
+| `W25Q_LogClear()` | Xóa tất cả log |
+
+### Log Types
+
+| Type | Giá trị | Mô tả |
+|------|---------|-------|
+| `W25Q_LOG_TCP_RECV` | 0 | Dữ liệu TCP nhận được |
+| `W25Q_LOG_TCP_SEND` | 1 | Dữ liệu TCP gửi đi |
+| `W25Q_LOG_SYSTEM` | 2 | Sự kiện hệ thống |
+| `W25Q_LOG_ERROR` | 3 | Lỗi |
+| `W25Q_LOG_BOOT` | 4 | Boot event |
+
+## Sử dụng Wiegand RFID Reader (2 Cổng)
+
+### Ví dụ cơ bản
+
+```cpp
+#include "wiegand.h"
+
+int main(void)
+{
+    WG_Init();  // Khởi tạo 2 cổng (JTAG giữ nguyên)
     
     while(1) {
-        // Main loop
+        // Poll tất cả 2 cổng — gọi liên tục trong main loop
+        uint8_t result = WG_Process();
+        if(result) {
+            // result là bitmask: bit0=Port0, bit1=Port1
+            for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
+                WG_CardData_t card;
+                if(WG_GetCard(port, &card)) {
+                    if(card.valid) {
+                        // card.port         = Cổng nào (0-1)
+                        // card.facilityCode = Facility Code
+                        // card.cardNumber   = Card Number
+                        char str[28];
+                        WG_FormatCard(&card, str);
+                        // str = "P0 FC:123 ID:45678"
+                    }
+                }
+            }
+        }
     }
 }
 ```
 
-### Các hàm P10
+### Khởi tạo từng cổng riêng lẻ
+
+```cpp
+// Chỉ dùng Port 0 (PA3/PA8)
+WG_InitPort(0);
+
+// Kiểm tra cổng nào có thẻ
+uint8_t p = WG_AnyAvailable();  // 0-1 = port number, 0xFF = none
+```
+
+### Tích hợp Wiegand với W25Q128 + Relay
+
+```cpp
+// Khi quẹt thẻ → log vào Flash + bật relay tương ứng
+uint8_t wgResult = WG_Process();
+if(wgResult) {
+    for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
+        WG_CardData_t card;
+        if(WG_GetCard(port, &card) && card.valid) {
+            // Bật relay tương ứng port (tự tắt sau ~3s)
+            if(card.port < RELAY_NUM_CHANNELS) {
+                RELAY_Pulse(card.port, 2160000);
+            }
+            
+            // Log vào Flash
+            char cardStr[28];
+            WG_FormatCard(&card, cardStr);
+            W25Q_LogWrite(W25Q_LOG_SYSTEM, (uint8_t*)cardStr, strlen(cardStr));
+        }
+    }
+}
+```
+
+### Các hàm Wiegand (Multi-Port)
 
 | Hàm | Mô tả |
 |-----|-------|
-| `P10_Init()` | Khởi tạo P10 |
-| `P10_SetupTimer()` | Cấu hình Timer tự động refresh |
-| `P10_Clear()` | Xóa màn hình (tắt tất cả LED) |
-| `P10_Fill()` | Bật tất cả LED |
-| `P10_SetPixel(x, y, value)` | Đặt pixel tại (x, y) |
-| `P10_GetPixel(x, y)` | Lấy giá trị pixel |
-| `P10_DrawChar(x, y, c)` | Vẽ ký tự |
-| `P10_DrawString(x, y, str)` | Vẽ chuỗi ký tự |
-| `P10_DrawLine(x0, y0, x1, y1)` | Vẽ đường thẳng |
-| `P10_DrawRect(x, y, w, h, fill)` | Vẽ hình chữ nhật |
-| `P10_ScrollText(y, str, delay)` | Cuộn text ngang |
-| `P10_SetBrightness(brightness)` | Đặt độ sáng (0-100%) |
-| `P10_Refresh()` | Refresh màn hình (gọi trong interrupt) |
+| `WG_Init()` | Khởi tạo 2 cổng (JTAG giữ nguyên) |
+| `WG_InitPort(port)` | Khởi tạo 1 cổng (0-1) |
+| `WG_Process()` | Poll tất cả — return bitmask (bit0-1 = port0-1) |
+| `WG_ProcessPort(port)` | Poll 1 cổng — return 1 khi có thẻ |
+| `WG_GetCard(port, &card)` | Lấy dữ liệu thẻ từ cổng. Return 1=OK |
+| `WG_Available(port)` | Có thẻ chưa đọc trên cổng? |
+| `WG_AnyAvailable()` | Cổng nào có thẻ? (0-1 hoặc 0xFF=không) |
+| `WG_Reset(port)` | Reset 1 cổng |
+| `WG_ResetAll()` | Reset tất cả |
+| `WG_GetBitCount(port)` | Số bit đã nhận trên cổng |
+| `WG_GetRawBits(port)` | Raw bits trên cổng |
+| `WG_Decode(bits, count, &card)` | Decode thủ công từ raw bits |
+| `WG_CheckParity26(raw)` | Kiểm tra parity Wiegand 26-bit |
+| `WG_CheckParity34(raw)` | Kiểm tra parity Wiegand 34-bit |
+| `WG_FormatCard(&card, buf)` | Format "P0 FC:xxx ID:xxxxx" (cần 28 bytes) |
+| `WG_FormatCardNumber(&card, buf)` | Format chỉ card number (cần 12 bytes) |
 
-### Cấu hình số lượng panel
+### Wiegand Card Data Structure
 
-Thay đổi trong `Library/P10/p10.h`:
+| Field | Type | Mô tả |
+|-------|------|-------|
+| `cardNumber` | `uint32_t` | Số thẻ (Card Number) |
+| `facilityCode` | `uint16_t` | Mã cơ sở (Facility Code) |
+| `rawData` | `uint32_t` | Dữ liệu thô (không parity) |
+| `rawBits` | `uint64_t` | Toàn bộ bits nhận được |
+| `bitCount` | `uint8_t` | Số bit (26, 34, 37...) |
+| `format` | `uint8_t` | WG_FORMAT_26BIT, 34BIT, 37BIT, UNKNOWN |
+| `valid` | `uint8_t` | 1 = parity OK, 0 = lỗi parity |
+| `port` | `uint8_t` | Cổng đọc (0-1) |
 
-```c
-#define P10_PANELS_X        1       // Số panel theo chiều ngang
-#define P10_PANELS_Y        1       // Số panel theo chiều dọc
+### Wiegand 26-bit Format (H10301)
+
 ```
+┌────┬──────────────┬────────────────────────┬────┐
+│ EP │  Facility    │     Card Number        │ OP │
+│ 1b │   8 bits     │      16 bits           │ 1b │
+└────┴──────────────┴────────────────────────┴────┘
+ EP = Even Parity (bits 1-12)
+ OP = Odd Parity  (bits 13-24)
+ Facility: 0-255, Card: 0-65535
+```
+
+### Memory Layout
+
+```
+W25Q128 (16MB)
+┌──────────────────────────────────────┐
+│ Sector 0 (4KB): Config & Metadata    │ ← Magic, write index, log count, boot count
+├──────────────────────────────────────┤
+│ Sector 1-4095: Log Data              │ ← 64 bytes/entry, max 262,080 entries
+│   (Circular buffer - auto wrap)      │
+└──────────────────────────────────────┘
+```
+
+## Sử dụng Relay (4 Kênh)
+
+### Ví dụ cơ bản
+
+```cpp
+#include "relay.h"
+
+int main(void)
+{
+    RELAY_Init();    // Khởi tạo PA9-PA12, tất cả OFF
+    
+    RELAY_On(0);     // Bật relay 0
+    RELAY_Off(0);    // Tắt relay 0
+    RELAY_Toggle(1); // Đảo trạng thái relay 1
+    
+    // Bật relay rồi tự tắt sau ~3 giây
+    RELAY_Pulse(2, 2160000);
+    
+    // Bật/tắt nhiều relay cùng lúc (bitmask)
+    RELAY_SetMask(0x05);   // Bật relay 0 và 2, tắt 1 và 3
+    
+    // Kiểm tra trạng thái
+    uint8_t state = RELAY_Get(0);      // RELAY_ON hoặc RELAY_OFF
+    uint8_t mask  = RELAY_GetMask();   // Bitmask tất cả
+    
+    // Format hiển thị
+    char buf[7];
+    RELAY_FormatStatus(buf);  // "R:1010"
+    
+    while(1) {
+        RELAY_Process();  // Xử lý auto-off timers
+    }
+}
+```
+
+### Tích hợp Relay với Wiegand (Access Control)
+
+```cpp
+// Quẹt thẻ tại cổng nào → mở relay cổng đó
+uint8_t wgResult = WG_Process();
+if(wgResult) {
+    for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
+        WG_CardData_t card;
+        if(WG_GetCard(port, &card) && card.valid) {
+            // Mở cửa tương ứng ~3 giây
+            RELAY_Pulse(card.port, 2160000);
+        }
+    }
+}
+
+// Trong main loop:
+RELAY_Process();  // Tự tắt relay khi hết thời gian
+```
+
+### Test tất cả relay
+
+```cpp
+// Bật từng relay 500ms rồi tắt (kiểm tra phần cứng)
+RELAY_TestAll(500);
+```
+
+### Các hàm Relay
+
+| Hàm | Mô tả |
+|-----|-------|
+| `RELAY_Init()` | Khởi tạo PA9-PA12 output, tất cả OFF |
+| `RELAY_On(ch)` | Bật relay kênh ch (0-3) |
+| `RELAY_Off(ch)` | Tắt relay kênh ch (0-3) |
+| `RELAY_Toggle(ch)` | Đảo trạng thái relay |
+| `RELAY_Set(ch, state)` | Đặt trạng thái (RELAY_ON/OFF) |
+| `RELAY_Get(ch)` | Đọc trạng thái 1 kênh |
+| `RELAY_AllOn()` | Bật tất cả |
+| `RELAY_AllOff()` | Tắt tất cả |
+| `RELAY_SetMask(mask)` | Đặt nhiều kênh (bitmask) |
+| `RELAY_GetMask()` | Đọc trạng thái bitmask |
+| `RELAY_Pulse(ch, delay)` | Bật + auto-off sau delay loop counts |
+| `RELAY_Process()` | Xử lý auto-off — gọi trong main loop |
+| `RELAY_TestAll(ms)` | Test tuần tự từng relay |
+| `RELAY_IsInitialized()` | Đã khởi tạo chưa? |
+| `RELAY_FormatStatus(buf)` | Format "R:1010" (cần 7 bytes) |
+
+### Relay Configuration
+
+| Macro | Giá trị mặc định | Mô tả |
+|-------|-------------------|-------|
+| `RELAY_NUM_CHANNELS` | 4 | Số kênh relay |
+| `RELAY_ACTIVE_HIGH` | 0 | 0=Active LOW, 1=Active HIGH |
 
 ## Sử dụng LCD I2C
 
@@ -350,6 +702,53 @@ STM32F103C8T6                    ST-Link V2
 
 ## History
 
+- **2026-03-03**: Bỏ DS1302 RTC, giữ nguyên JTAG, giảm Wiegand xuống 2 cổng
+  - Bỏ `Library/DS1302/ds1302.c` và `ds1302.h` khỏi build (CMakeLists.txt)
+  - Bỏ toàn bộ code DS1302 trong `main.cpp` (init, time display, timestamp log)
+  - Giảm Wiegand từ 3 cổng xuống 2 cổng: Port 0 (PA3/PA8), Port 1 (PA0/PA1)
+  - Bỏ Port 2 (PA2/PA15) — giữ nguyên cổng JTAG đầy đủ (PA15/PB3/PB4)
+  - Không còn disable JTAG trong `WG_Init()`
+  - Giải phóng chân: PA2, PB8, PB9, PB10 (tổng 7 chân trống)
+  - Cập nhật README: bỏ DS1302 documentation, GPIO summary, Wiegand 2-port
+- **2026-03-03**: Mở rộng 3 cổng Wiegand + 4 kênh Relay
+  - Cập nhật `Library/Wiegand/wiegand.c` thành multi-port (3 cổng độc lập)
+  - Port 0: PA3/PA8, Port 1: PA0/PA1, Port 2: PA2/PA15
+  - PA15 tự động disable JTAG (SWD debug vẫn hoạt động)
+  - `WG_Process()` trả bitmask, `WG_GetCard(port, &card)` lấy dữ liệu theo cổng
+  - Format output: "P0 FC:xxx ID:xxxxx" (có port number)
+  - Thêm `Library/Relay/relay.c` và `Library/Relay/relay.h` — 4 kênh relay
+  - Relay 0-3 trên PA9, PA10, PA11, PA12
+  - Active LOW (optocoupler), có thể đổi Active HIGH qua macro
+  - Hỗ trợ: On/Off/Toggle, Bitmask, Auto-off Pulse, Test sequence
+  - Tích hợp: quẹt thẻ hợp lệ → bật relay tương ứng port ~3 giây
+  - LCD hiển thị trạng thái relay: "R:1010"
+  - Build OK: FLASH 30.36%, RAM 21.68%
+  - Tất cả chân GPIOA đã dùng hết, còn trống: PB2-PB5, PB11 (5 chân)
+- **2026-03-03**: Thêm Wiegand RFID Reader driver
+  - Thêm `Library/Wiegand/wiegand.c` và `Library/Wiegand/wiegand.h`
+  - Polling-based trên PA3 (D0) và PA8 (D1)
+  - Hỗ trợ: Wiegand 26-bit (H10301), 34-bit, 37-bit
+  - Tự động decode: Facility Code, Card Number, parity check
+  - Tích hợp vào main.cpp: quẹt thẻ → hiển thị LCD + log Flash kèm timestamp
+  - Format output: "FC:xxx ID:xxxxx"
+- **2026-03-03**: Chuyển DS1302 từ GPIOA sang GPIOB (PB8/PB9/PB10)
+  - Cùng port với LCD I2C (PB6/PB7), dễ đi dây
+  - Giải phóng PA0-PA2 cho mục đích khác
+- **2026-03-03**: Thêm DS1302 RTC driver, tích hợp timestamp vào log
+  - Thêm `Library/DS1302/ds1302.c` và `Library/DS1302/ds1302.h`
+  - Giao tiếp 3-Wire (bit-bang) trên PA0 (CE), PA1 (CLK), PA2 (DAT)
+  - Hỗ trợ: đọc/ghi thời gian, RAM 31 bytes, format chuỗi, timestamp
+  - Tích hợp vào main.cpp: khởi tạo RTC, hiển thị thời gian trên LCD
+  - Log TCP data kèm timestamp thực từ DS1302 vào W25Q128 Flash
+  - Auto-detect: nếu DS1302 không kết nối, bỏ qua không block MCU
+  - Cập nhật README: kết nối phần cứng, API reference, GPIO summary
+- **2026-03-03**: Thêm W25Q128 SPI Flash driver, tạm tắt P10
+  - Thêm `Library/W25Q/w25q128.c` và `Library/W25Q/w25q128.h`
+  - Software SPI (bit-bang) trên PB12-PB15 (reuse chân P10)
+  - Hỗ trợ: Read, Write, Erase (Sector/Block/Chip), Power Down
+  - Data Logger tích hợp: circular buffer, 262K entries, boot counter
+  - Tự động log dữ liệu TCP nhận được vào Flash
+  - P10 LED Matrix tạm disable trong CMakeLists.txt và main.cpp (file vẫn giữ)
 - **2026-03-02**: Debug, sửa lỗi và hoàn thiện firmware TCP Echo Server
   - **Sửa lỗi SystemInit()**: Startup code gọi `bl SystemInit` nhưng không có implementation → MCU crash. Thêm `extern "C" void SystemInit(void) {}` trong `main.cpp`
   - **Thêm SystemClock_Config()**: Cấu hình HSE 8MHz + PLL x9 = 72MHz bằng raw register (không dùng CMSIS macros). Có fallback về HSI 8MHz nếu HSE timeout

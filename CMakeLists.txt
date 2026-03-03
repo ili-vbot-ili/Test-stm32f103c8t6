@@ -94,7 +94,11 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC ${sources_SRCS}
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/wizchip_conf.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500/socket.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/lcd1602/lcd_i2c.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Library/P10/p10.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Library/P10/p10.c    # P10 disabled - pins reused for W25Q128
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/W25Q/w25q128.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Library/DS1302/ds1302.c    # DS1302 disabled - JTAG preserved
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/Wiegand/wiegand.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/Relay/relay.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Src/w5500_conf.c
 )
 
@@ -102,7 +106,11 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC ${sources_SRCS}
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/W5500
     ${CMAKE_CURRENT_SOURCE_DIR}/Library/lcd1602
-    ${CMAKE_CURRENT_SOURCE_DIR}/Library/P10
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Library/P10      # P10 disabled
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/W25Q
+    # ${CMAKE_CURRENT_SOURCE_DIR}/Library/DS1302      # DS1302 disabled - JTAG preserved
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/Wiegand
+    ${CMAKE_CURRENT_SOURCE_DIR}/Library/Relay
     ${include_DIRS}
     $<$<COMPILE_LANGUAGE:C>: ${include_c_DIRS}>
     $<$<COMPILE_LANGUAGE:CXX>: ${include_cxx_DIRS}>

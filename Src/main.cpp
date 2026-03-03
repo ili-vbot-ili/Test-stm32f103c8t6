@@ -23,7 +23,11 @@
 #include "w5500.h"
 #include "socket.h"
 #include "lcd_i2c.h"
-#include "p10.h"
+// #include "p10.h"      // P10 disabled - pins reused for W25Q128
+#include "w25q128.h"
+// #include "ds1302.h"   // DS1302 disabled - JTAG pins preserved
+#include "wiegand.h"
+#include "relay.h"
 
 /* Required by startup_stm32f103xx.S */
 extern "C" void SystemInit(void)
@@ -199,23 +203,10 @@ int32_t TCP_EchoServer(uint8_t sn, uint16_t port)
                 }
                 LCD_Print((const char*)gDataBuf);
                 
-                /* Display received data on P10 LED Matrix */
-                P10_Clear();
-                P10_DrawString(0, 0, "Recv:");
-                
-                /* Restore full string for P10 (can display more chars) */
-                gDataBuf[ret] = '\0';
-                
-                /* Display data on P10 - limit to fit display width */
-                char p10Buf[32];
-                uint8_t copyLen = (ret > 31) ? 31 : ret;
-                for(uint8_t i = 0; i < copyLen; i++) {
-                    p10Buf[i] = (char)gDataBuf[i];
+                /* Log received data to W25Q128 Flash */
+                if(W25Q_IsConnected()) {
+                    W25Q_LogWrite(W25Q_LOG_TCP_RECV, gDataBuf, (ret > 56) ? 56 : (uint8_t)ret);
                 }
-                p10Buf[copyLen] = '\0';
-                
-                /* First line: first part of data */
-                P10_DrawString(0, 8, p10Buf);
             }
             break;
             
@@ -382,23 +373,107 @@ int main(void)
         LCD_Print("192.168.1.100");
     }
     
-    /* Initialize P10 LED Matrix (output-only, always init) */
-    P10_Init();
-    P10_SetupTimer();
-    P10_Clear();
-    P10_DrawString(0, 0, "TCP:5000");
-    P10_DrawString(0, 8, "192.168.1.100");
+    /* Initialize W25Q128 SPI Flash (reuses P10 pins PB12-PB15) */
+    uint8_t flashOk = W25Q_Init();
+    if(flashOk) {
+        W25Q_LogInit();
+        /* Log boot event */
+        const char *bootMsg = "Boot OK";
+        W25Q_LogWrite(W25Q_LOG_BOOT, (const uint8_t *)bootMsg, 7);
+        
+        if(LCD_IsConnected()) {
+            LCD_SetCursor(0, 1);
+            LCD_Print("Flash OK Boot:");
+            LCD_PrintInt((int)W25Q_GetBootCount());
+        }
+    } else {
+        if(LCD_IsConnected()) {
+            LCD_SetCursor(0, 1);
+            LCD_Print("Flash: N/A");
+        }
+    }
     
-    /* Main loop - Run TCP Echo Server + heartbeat LED */
+    /* DS1302 RTC disabled — JTAG pins preserved */
+    
+    /* Initialize Wiegand RFID Reader (2 ports: PA3/PA8, PA0/PA1) */
+    WG_Init();
+    LED_Blink(8, 100);  // 8 blinks = Wiegand ready
+    
+    /* Initialize Relay outputs (PA9-PA12, 4 channels) */
+    RELAY_Init();
+    LED_Blink(9, 100);  // 9 blinks = Relay ready
+    
+    /* Main loop - Run TCP Echo Server + heartbeat LED + RTC display + Wiegand + Relay */
     while(1)
     {
         TCP_EchoServer(SOCKET_TCP, TCP_PORT);
+        
+        /* Process relay auto-off timers */
+        RELAY_Process();
+        
+        /* Poll all Wiegand reader ports */
+        uint8_t wgResult = WG_Process();
+        if(wgResult) {
+            /* Check each port for new data */
+            for(uint8_t wgPort = 0; wgPort < WG_NUM_PORTS; wgPort++) {
+                WG_CardData_t card;
+                if(WG_GetCard(wgPort, &card)) {
+                    /* Display on LCD */
+                    if(LCD_IsConnected()) {
+                        LCD_Clear();
+                        LCD_SetCursor(0, 0);
+                        if(card.valid) {
+                            char cardStr[28];
+                            WG_FormatCard(&card, cardStr);
+                            LCD_Print(cardStr);
+                        } else {
+                            LCD_Print("P");
+                            LCD_PrintInt(card.port);
+                            LCD_Print(" ERR ");
+                            LCD_PrintInt(card.bitCount);
+                            LCD_Print("b");
+                        }
+                        
+                        /* Show relay status on line 2 */
+                        char relayBuf[7];
+                        RELAY_FormatStatus(relayBuf);
+                        LCD_SetCursor(0, 1);
+                        LCD_Print(relayBuf);
+                    }
+                    
+                    /* Activate relay for the corresponding port (pulse ~3s) */
+                    if(card.valid && card.port < RELAY_NUM_CHANNELS) {
+                        RELAY_Pulse(card.port, 2160000);  // ~3s at 72MHz loop
+                    }
+                    
+                    /* Log card to W25Q128 Flash */
+                    if(W25Q_IsConnected()) {
+                        uint8_t logBuf[56];
+                        char cardStr[28];
+                        WG_FormatCard(&card, cardStr);
+                        uint8_t len = 0;
+                        while(cardStr[len] && len < 56) len++;
+                        memcpy(logBuf, cardStr, len);
+                        W25Q_LogWrite(W25Q_LOG_SYSTEM, logBuf, len);
+                    }
+                }
+            }
+        }
         
         /* Heartbeat - toggle LED every ~1s */
         static uint32_t cnt = 0;
         if(++cnt > 100000) {
             cnt = 0;
             GPIOC->ODR ^= (1 << 13);
+            
+            /* Update relay status on LCD every heartbeat (~1s) */
+            if(LCD_IsConnected()) {
+                /* Show relay status on line 2 */
+                char relayBuf[7];
+                RELAY_FormatStatus(relayBuf);
+                LCD_SetCursor(9, 1);
+                LCD_Print(relayBuf);
+            }
         }
     }
 }
