@@ -266,35 +266,6 @@ Chân JTAG giữ nguyên: PA13, PA14, PA15, PB3, PB4
 
 ## Sử dụng W25Q128 SPI Flash
 
-### Ví dụ cơ bản
-
-```cpp
-#include "w25q128.h"
-
-int main(void)
-{
-    // Khởi tạo W25Q128
-    if(W25Q_Init()) {
-        W25Q_LogInit();
-        
-        // Ghi log
-        W25Q_LogWrite(W25Q_LOG_SYSTEM, (uint8_t*)"Hello", 5);
-        
-        // Đọc log
-        W25Q_LogEntry_t entry;
-        W25Q_LogRead(0, &entry);
-        
-        // Đọc/ghi trực tiếp
-        uint8_t buf[256];
-        W25Q_EraseSector(0x100000);          // Xóa sector tại 1MB
-        W25Q_Write(0x100000, buf, 256);      // Ghi 256 bytes
-        W25Q_Read(0x100000, buf, 256);       // Đọc lại
-    }
-    
-    while(1) { }
-}
-```
-
 ### Các hàm W25Q128
 
 | Hàm | Mô tả |
@@ -335,71 +306,6 @@ int main(void)
 
 ## Sử dụng Wiegand RFID Reader (2 Cổng)
 
-### Ví dụ cơ bản
-
-```cpp
-#include "wiegand.h"
-
-int main(void)
-{
-    WG_Init();  // Khởi tạo 2 cổng (JTAG giữ nguyên)
-    
-    while(1) {
-        // Poll tất cả 2 cổng — gọi liên tục trong main loop
-        uint8_t result = WG_Process();
-        if(result) {
-            // result là bitmask: bit0=Port0, bit1=Port1
-            for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
-                WG_CardData_t card;
-                if(WG_GetCard(port, &card)) {
-                    if(card.valid) {
-                        // card.port         = Cổng nào (0-1)
-                        // card.facilityCode = Facility Code
-                        // card.cardNumber   = Card Number
-                        char str[28];
-                        WG_FormatCard(&card, str);
-                        // str = "P0 FC:123 ID:45678"
-                    }
-                }
-            }
-        }
-    }
-}
-```
-
-### Khởi tạo từng cổng riêng lẻ
-
-```cpp
-// Chỉ dùng Port 0 (PA3/PA8)
-WG_InitPort(0);
-
-// Kiểm tra cổng nào có thẻ
-uint8_t p = WG_AnyAvailable();  // 0-1 = port number, 0xFF = none
-```
-
-### Tích hợp Wiegand với W25Q128 + Relay
-
-```cpp
-// Khi quẹt thẻ → log vào Flash + bật relay tương ứng
-uint8_t wgResult = WG_Process();
-if(wgResult) {
-    for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
-        WG_CardData_t card;
-        if(WG_GetCard(port, &card) && card.valid) {
-            // Bật relay tương ứng port (tự tắt sau ~3s)
-            if(card.port < RELAY_NUM_CHANNELS) {
-                RELAY_Pulse(card.port, 2160000);
-            }
-            
-            // Log vào Flash
-            char cardStr[28];
-            WG_FormatCard(&card, cardStr);
-            W25Q_LogWrite(W25Q_LOG_SYSTEM, (uint8_t*)cardStr, strlen(cardStr));
-        }
-    }
-}
-```
-
 ### Các hàm Wiegand (Multi-Port)
 
 | Hàm | Mô tả |
@@ -434,90 +340,7 @@ if(wgResult) {
 | `valid` | `uint8_t` | 1 = parity OK, 0 = lỗi parity |
 | `port` | `uint8_t` | Cổng đọc (0-1) |
 
-### Wiegand 26-bit Format (H10301)
-
-```
-┌────┬──────────────┬────────────────────────┬────┐
-│ EP │  Facility    │     Card Number        │ OP │
-│ 1b │   8 bits     │      16 bits           │ 1b │
-└────┴──────────────┴────────────────────────┴────┘
- EP = Even Parity (bits 1-12)
- OP = Odd Parity  (bits 13-24)
- Facility: 0-255, Card: 0-65535
-```
-
-### Memory Layout
-
-```
-W25Q128 (16MB)
-┌──────────────────────────────────────┐
-│ Sector 0 (4KB): Config & Metadata    │ ← Magic, write index, log count, boot count
-├──────────────────────────────────────┤
-│ Sector 1-4095: Log Data              │ ← 64 bytes/entry, max 262,080 entries
-│   (Circular buffer - auto wrap)      │
-└──────────────────────────────────────┘
-```
-
 ## Sử dụng Relay (4 Kênh)
-
-### Ví dụ cơ bản
-
-```cpp
-#include "relay.h"
-
-int main(void)
-{
-    RELAY_Init();    // Khởi tạo PA9-PA12, tất cả OFF
-    
-    RELAY_On(0);     // Bật relay 0
-    RELAY_Off(0);    // Tắt relay 0
-    RELAY_Toggle(1); // Đảo trạng thái relay 1
-    
-    // Bật relay rồi tự tắt sau ~3 giây
-    RELAY_Pulse(2, 2160000);
-    
-    // Bật/tắt nhiều relay cùng lúc (bitmask)
-    RELAY_SetMask(0x05);   // Bật relay 0 và 2, tắt 1 và 3
-    
-    // Kiểm tra trạng thái
-    uint8_t state = RELAY_Get(0);      // RELAY_ON hoặc RELAY_OFF
-    uint8_t mask  = RELAY_GetMask();   // Bitmask tất cả
-    
-    // Format hiển thị
-    char buf[7];
-    RELAY_FormatStatus(buf);  // "R:1010"
-    
-    while(1) {
-        RELAY_Process();  // Xử lý auto-off timers
-    }
-}
-```
-
-### Tích hợp Relay với Wiegand (Access Control)
-
-```cpp
-// Quẹt thẻ tại cổng nào → mở relay cổng đó
-uint8_t wgResult = WG_Process();
-if(wgResult) {
-    for(uint8_t port = 0; port < WG_NUM_PORTS; port++) {
-        WG_CardData_t card;
-        if(WG_GetCard(port, &card) && card.valid) {
-            // Mở cửa tương ứng ~3 giây
-            RELAY_Pulse(card.port, 2160000);
-        }
-    }
-}
-
-// Trong main loop:
-RELAY_Process();  // Tự tắt relay khi hết thời gian
-```
-
-### Test tất cả relay
-
-```cpp
-// Bật từng relay 500ms rồi tắt (kiểm tra phần cứng)
-RELAY_TestAll(500);
-```
 
 ### Các hàm Relay
 
@@ -548,29 +371,6 @@ RELAY_TestAll(500);
 
 ## Sử dụng LCD I2C
 
-### Ví dụ cơ bản
-
-```cpp
-#include "lcd_i2c.h"
-
-int main(void)
-{
-    // Khởi tạo LCD
-    LCD_Init();
-    
-    // In text lên LCD
-    LCD_SetCursor(0, 0);      // Cột 0, Dòng 0
-    LCD_Print("Hello World!");
-    
-    LCD_SetCursor(0, 1);      // Cột 0, Dòng 1
-    LCD_Print("STM32 + W5500");
-    
-    while(1) {
-        // Main loop
-    }
-}
-```
-
 ### Các hàm LCD
 
 | Hàm | Mô tả |
@@ -586,17 +386,8 @@ int main(void)
 | `LCD_Blink(on)` | Bật/tắt nhấp nháy con trỏ |
 | `LCD_CreateChar(loc, map)` | Tạo ký tự tùy chỉnh |
 
-### Thay đổi địa chỉ I2C
-
-Nếu LCD không hiển thị, thử đổi địa chỉ trong `Library/lcd1602/lcd_i2c.h`:
-
-```c
-// Thử các địa chỉ phổ biến:
-#define LCD_I2C_ADDR  0x27    // PCF8574
-// hoặc
-#define LCD_I2C_ADDR  0x3F    // PCF8574A
-```
-
+### Lưu ý
+- **Địa chỉ I2C mặc định**: `0x27` (PCF8574) hoặc `0x3F` (PCF8574A) — đổi trong `Library/lcd1602/lcd_i2c.h`
 
 ## Yêu cầu
 
@@ -607,21 +398,8 @@ Nếu LCD không hiển thị, thử đổi địa chỉ trong `Library/lcd1602/
 
 ## Build
 
-### Sử dụng CMake Presets
-
-```bash
-# Configure (Debug)
-cmake --preset Debug
-
-# Build
-cmake --build build/Debug
-```
-
-### Sử dụng VS Code
-
-1. Mở project trong VS Code
-2. Chọn preset "Debug" hoặc "Release"
-3. Build project (Ctrl+Shift+B)
+- CMake Presets: `cmake --preset Debug` → `cmake --build build/Debug`
+- VS Code: Chọn preset "Debug"/"Release" → Build (Ctrl+Shift+B)
 
 ## Output
 
@@ -657,15 +435,7 @@ STM32F103C8T6                    ST-Link V2
     └─────────┘                  └─────────┘
 ```
 
-**Nạp firmware:**
-
-```powershell
-# Sử dụng script có sẵn
-.\flash.ps1
-
-# Hoặc sử dụng trực tiếp STM32CubeProgrammer CLI
-& "C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe" -c port=SWD -w build\Debug\Test-stm32f103c6t8.hex -v -rst
-```
+**Nạp firmware:** Chạy `.\flash.ps1` hoặc dùng STM32CubeProgrammer CLI với `port=SWD`.
 
 ### Phương pháp 2: Serial (UART via USB-TTL)
 
@@ -683,16 +453,7 @@ STM32F103C8T6                    ST-Link V2
 - **BOOT1 = 0** (nối xuống GND)
 - Nhấn nút **RESET**
 
-**Nạp firmware:**
-
-```powershell
-# Thay COM3 bằng cổng COM của bạn
-& "C:\Program Files\STMicroelectronics\STM32Cube\STM32CubeProgrammer\bin\STM32_Programmer_CLI.exe" -c port=COM3 -w build\Debug\Test-stm32f103c6t8.hex -v -rst
-```
-
-**Sau khi nạp xong:**
-- **BOOT0 = 0** (nối xuống GND)
-- Nhấn nút **RESET** để chạy chương trình
+**Nạp firmware:** Dùng STM32CubeProgrammer CLI với `port=COMx`. Sau khi nạp, chuyển **BOOT0 = 0** (GND) và nhấn **RESET**.
 
 ### Phương pháp 3: Sử dụng VS Code
 
